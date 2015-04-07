@@ -1,6 +1,9 @@
 /**
  * Created by home on 3/23/15.
  */
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.*;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -13,24 +16,240 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
+import javax.swing.*;
+
 public class btreeproject {
+    Btree btree;
+    JButton button;
+    JLabel matchOne, matchTwo, matchThree, one, two, three;
+    JTextField url;
+    JFrame frame = new JFrame("Website Similarity Tester");
+
+    public btreeproject(Btree btree){
+        this.btree = btree;
+        javax.swing.SwingUtilities.invokeLater(new Runnable() {
+            public void run() {
+                createAndShowGUI(frame);
+            }
+        });
+    }
+
+    public void addComponentsToPane(Container pane) {
+        pane.setLayout(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.fill = GridBagConstraints.HORIZONTAL;
+
+
+        button = new JButton("Find Matches");
+        c.weightx = 0;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 0;
+        c.gridy = 0;
+        pane.add(button, c);
+
+        button.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                compare();
+            }
+        });
+
+        url = new JTextField();
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1;
+        c.ipadx=700;
+        c.gridx = 1;
+        c.gridy = 0;
+        pane.add(url, c);
+        c.ipadx=0;
+
+        matchOne = new JLabel("Match One: ");
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0;
+        c.gridx = 0;
+        c.gridy = 1;
+        pane.add(matchOne, c);
+
+        matchTwo = new JLabel("Match Two: ");
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0;
+        c.gridx = 0;
+        c.gridy = 2;
+        pane.add(matchTwo, c);
+
+        matchThree = new JLabel("Match Three: ");
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0;
+        c.gridx = 0;
+        c.gridy = 3;
+        pane.add(matchThree, c);
+
+        one = new JLabel("");
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0;
+        c.gridx = 1;
+        c.gridy = 1;
+        pane.add(one, c);
+
+        two = new JLabel("");
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0;
+        c.gridx = 1;
+        c.gridy = 2;
+        pane.add(two, c);
+
+        three = new JLabel("");
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 0;
+        c.gridx = 1;
+        c.gridy = 3;
+        pane.add(three, c);
+    }
+
+    void compare() {
+        try {
+            CacheNode node = btree.getCacheNode(url.getText().hashCode() & 15);
+            if(node.url.equals(url.getText()) && node.dateAccessed > new URL(node.url).openConnection().getLastModified()) {
+                one.setText(btree.getUrl((int) node.matches[0]));
+                two.setText(btree.getUrl((int) node.matches[1]));
+                three.setText(btree.getUrl((int) node.matches[2]));
+                matchOne.setText("Match One: " + node.scores[0]);
+                matchTwo.setText("Match Two: " + node.scores[1]);
+                matchThree.setText("Match Three: " + node.scores[2]);
+            }else {
+                double[] sims = btree.compare(url.getText());
+                for (int i = 0 ; i < 20; i ++){
+                    System.out.println( sims[i]);
+                }
+                byte first = 0, second = 0, third = 0;
+                double firstScore = sims[0], secondScore = -1, thirdScore = -1;
+                for (byte i = 1; i < 20; i++) {
+                    if (sims[i] >= firstScore) {
+                        thirdScore = secondScore;
+                        secondScore = firstScore;
+                        firstScore = sims[i];
+                        third = second;
+                        second = first;
+                        first = i;
+                    } else if (sims[i] >= secondScore) {
+                        thirdScore = secondScore;
+                        secondScore = sims[i];
+                        third = second;
+                        second = i;
+                    } else if (sims[i] >= thirdScore) {
+                        thirdScore = sims[i];
+                        third = i;
+                    }
+                }
+                one.setText(btree.getUrl(first));
+                two.setText(btree.getUrl(second));
+                three.setText(btree.getUrl(third));
+                matchOne.setText("Match One: " + firstScore);
+                matchTwo.setText("Match Two: " + secondScore);
+                matchThree.setText("Match Three: " + thirdScore);
+                byte[] matches = {first, second, third};
+                double[] scores = {firstScore, secondScore, thirdScore};
+                btree.putCacheNode(new CacheNode(url.getText().toCharArray(), matches, scores, new Date().getTime()), url.getText().hashCode() & 15);
+            }
+        } catch (Exception e) {
+            one.setText(e.getMessage());
+        }
+    }
+
+
+    private void createAndShowGUI(JFrame frame) {
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        //Set up the content pane.
+        addComponentsToPane(frame.getContentPane());
+
+        //Display the window.
+        frame.pack();
+        frame.setVisible(true);
+    }
+
     public static void main(String[] args) throws Exception {
         Btree btree = new Btree("btree");
-        btree.load();
-        btree.display();
+        //btree.load();
+        //btree.clearCache();
+        btreeproject proj = new btreeproject(btree);
+        //btree.toTextFile();
     }
 }
 
-class Btree{
+class Btree  implements Iterable<StringFreqs>{
     RandomAccessFile file;
     int nodeCount;
     BtreeNode root;
     public static final short minimumDegree = 500;
+    private static final Set<String> junkWords = new HashSet<String>(Arrays.asList(
+            new String[]{"nbsp", "with", "were", "also", "from"}
+    ));
+
+    public void clearCache()throws Exception{
+        file.seek(0);
+        file.write(new byte[12336]);
+    }
+
+    private static final Set<String> junkUrls = new HashSet<String>(Arrays.asList(
+            new String[]{"http://www.mediawiki.org/",
+                    "http://www.wikimediafoundation.org/",
+                    "http://en.wikipedia.org/wiki/Help:Category",
+                    "http://en.wikipedia.org/wiki/Portal:Current_events",
+                    "http://en.wikipedia.org/wiki/Portal:Featured_content",
+                    "http://en.wikipedia.org/wiki/Special:Random",
+                    "http://en.wikipedia.org/wiki/Portal:Contents",
+                    "http://en.wikipedia.org/wiki/Wikipedia:Community_portal",
+                    "https://www.mediawiki.org/wiki/Special:MyLanguage/How_to_contribute",
+                    "http://wikimediafoundation.org/wiki/Terms_of_Use",
+                    "http://en.wikipedia.org/wiki/Wikipedia:General_disclaimer",
+                    "http://shop.wikimedia.org",
+                    "http://en.wikipedia.org/wiki/Help:Contents",
+                    "http://en.wikipedia.org/wiki/Special:SpecialPages",
+                    "http://creativecommons.org/licenses/by-sa/3.0/",
+                    "http://wikimediafoundation.org/",
+                    "http://en.wikipedia.org/wiki/Special:RecentChanges",
+                    "http://wikimediafoundation.org/wiki/Privacy_policy",
+                    "http://en.wikipedia.org/wiki/Wikipedia:Contact_us",
+                    "https://donate.wikimedia.org/wiki/Special:FundraiserRedirector?utm_source=donate&utm_medium=sidebar&utm_campaign=C13_en.wikipedia.org&uselang=en",
+                    "http://en.wikipedia.org/wiki/Main_Page",
+                    "http://en.wikipedia.org/wiki/Wikipedia:About",
+                    "http://en.wikipedia.org/wiki/Wikipedia:Text_of_Creative_Commons_Attribution-ShareAlike_3.0_Unported_License",
+                    "http://en.wikipedia.org/wiki/Wikipedia:File_Upload_Wizard",
+            }
+    ));
+
+    public double[] compare(String url)throws Exception{
+        Histogram hist = new Histogram(url);
+        double[] dotProducts = new double[20];
+        double sumOfSquaredHist = 0.0;
+        double[] sumofSquaredBtree = new double[20];
+        double[] scores = new double[20];
+        for(HistNode histNode : hist){
+            insert(histNode.word, 0, 0);
+        }
+        for(StringFreqs stringFreqs : this){
+            String word = stringFreqs.string;
+            int freq = hist.getCount(word);
+            short[] freqs = stringFreqs.freqs;
+            sumOfSquaredHist += Math.pow(freq,2);
+            for(int i = 0; i < 20; i++){
+                sumofSquaredBtree[i] += Math.pow(freqs[i], 2);
+                dotProducts[i] += freqs[i] * freq;
+            }
+        }
+        for(int i = 0; i < 20; i++){
+            scores[i] = dotProducts[i]/(Math.sqrt(sumOfSquaredHist) * Math.sqrt(sumofSquaredBtree[i]));
+        }
+        return scores;
+    }
+
 
     public Btree(String name)throws Exception{
         File file = new File(name);
         if(file.isFile()){
             this.file = new RandomAccessFile(file, "rw");
+            this.file.seek(12336);
             root = readNode(this.file.readInt());
             int length = (int)this.file.length();
             nodeCount = (int) ((length - 516) / (168 * minimumDegree - 77));
@@ -44,28 +263,124 @@ class Btree{
         }
     }
 
+    public void toTextFile() throws Exception{
+        int unique = 0;
+        File logFile = new File("words.text");
+        BufferedWriter writer = new BufferedWriter(new FileWriter(logFile));
+        writer.write("Root: "+root.index);
+        for(StringFreqs freqs : this){
+            short[] nums = freqs.freqs;
+            writer.write(freqs.string + ": " + nums[0]);
+            for(int i = 1; i < 20; i++){
+                writer.write(", " + nums[i]);
+            }
+            writer.write("\n");
+            unique++;
+        }
+        writer.write("Unique Words: " + unique);
+        writer.close();
+    }
+
+    public BtreeIterator iterator(){
+        return new BtreeIterator(root, this);
+    }
+
     public void loadWords(String url, int urlIndex) throws Exception{
+        //System.out.println("loading " + url);
+        URL myURL = new URL(url);
+        BufferedReader in = new BufferedReader(new InputStreamReader(myURL.openStream()));
+        String inputLine, doc = "";
+        while ((inputLine = in.readLine()) != null) doc += inputLine + " ";
+        in.close();
+        doc = Jsoup.clean(doc, Whitelist.none());//remove html tags
+        doc = doc.replaceAll("[^a-zA-Z ]", " ").toLowerCase();//remove punctuation, to lower case.
+        Scanner sc = new Scanner(doc);
+        String word;
+        while(sc.hasNext()) {
+            word = sc.next();
+            if(word.length() > 3 && ! junkWords.contains(word)) {
+                insert(word, urlIndex, 1);
+            }
+        }
+    }
+
+    public void putUrl(String url, int i)throws IOException{
+        file.seek(12340 + (i * 512));
+        for(int j = 0; j < 256; j++) {
+            if (j < url.length()) {
+                file.writeChars(url.substring(j, j + 1));
+            }else{
+                file.writeChars(" ");
+            }
+        }
+    }
+
+    public String getUrl(int i) throws IOException{
+        file.seek(12340 + (i * 512));
+        char[] url = new char[256];
+        for(int j = 0; j < 256; j++) {
+            url[j] = file.readChar();
+        }
+        return new String(url).trim();
+    }
+
+    public CacheNode getCacheNode(int i)throws Exception{
+        CacheNode node;
+        char[] url = new char[256];
+        Long dateAccessed;
+        byte[] matches = new byte[3];
+        double[] scores = new double[3];
+        file.seek(i * 771);
+        for ( int j = 0; j < 256; j++){
+            url[j] = file.readChar();
+        }
+        dateAccessed = file.readLong();
+        for(int j = 0; j < 3; j ++){
+            matches[j] = file.readByte();
+            scores[j] = file.readDouble();
+        }
+        return new CacheNode(url, matches, scores, dateAccessed);
+    }
+
+    public void putCacheNode(CacheNode node, int i)throws Exception{
+        file.seek(i * 771);
+        char[]url = node.url.toCharArray();
+        for(int j = 0; j < 256; j++){
+            if(j < url.length){
+                file.writeChar(url[j]);
+            }else{
+                file.writeShort(0);
+            }
+        }
+        file.writeLong(node.dateAccessed);
+        for(int j = 0; j < 3; j++){
+            file.writeByte(node.matches[j]);
+            file.writeDouble(node.scores[j]);
+        }
+    }
+
+    public void histLoadWords(String url, int urlIndex) throws Exception{
         Histogram histogram = new Histogram(url);
         //System.out.println(histogram.uniqueCount);
         for(HistNode histNode: histogram){
-            if(histNode.count == 0){
-                System.out.println(histNode.word);
-            }else {
+            String word = histNode.word;
+            if(word.length() > 3 && ! junkWords.contains(word)){
                 insert(histNode.word, urlIndex, histNode.count);
             }
         }
     }
 
     public void loadPage(String url, int urlIndex)throws Exception{
-        System.out.println("loading " + url);
+        //System.out.println("loading " + url);
         Document doc = Jsoup.connect(url).get();
         Elements links = doc.select("a[href]");
         String newUrl;
+        loadWords(url, urlIndex);
         for (Element link : links) {
             newUrl = link.attr("abs:href");
-            if(!newUrl.contains(url)){
+            if(! junkUrls.contains(newUrl) && ! newUrl.contains(url)){
                 try{
-                    loadWords(newUrl,urlIndex);
+                    histLoadWords(newUrl, urlIndex);
                 }catch (FileNotFoundException e){
                     //System.out.println("Bad url: " + newUrl);
                 }catch (IOException e){
@@ -97,32 +412,10 @@ class Btree{
                             "http://en.wikipedia.org/wiki/Gardens_of_Alsace",
                             "http://en.wikipedia.org/wiki/List_of_typefaces"
         };
-        int i = 0;
-        for (String url: pages){
-            if(i == 5){
-                loadPage(url, i);
-            }
-            i++;
-        }
-    }
-
-    public boolean searchAndAdd(BtreeNode node, String key, int url, int freq) throws Exception{
-        int i = 0;
-        int pop = node.getPopulation();
-        while(i < pop && key.compareTo(new String(node.getKey(i))) > 0)i ++;
-        if(i < pop) {
-            String word = new String(node.getKey(i));
-            word = word.trim();
-            if(key.equals(word)) {
-                node.addFreq(i, url, freq);
-                writeNode(node);
-                return true;
-            }
-        }
-        if(node.getLeaf()){
-            return false;
-        }else{
-            return searchAndAdd(readNode(node.getChild(i)), key, url, freq);
+        for (int i = 0; i < 20; i ++){
+            //loadPage(pages[i], i);
+            putUrl(pages[i], i);
+            //System.out.println(getUrl(i));
         }
     }
 
@@ -196,28 +489,34 @@ class Btree{
 
     public void insert(String key, int url, int freq) throws Exception{
         if(key.length() > 20) key = key.substring(0,20);
-        if(! searchAndAdd(root, key, url, freq)) {
-            BtreeNode r = root;
-            if (r.getPopulation() == (minimumDegree * 2 - 1)) {
-                BtreeNode s = new BtreeNode(nodeCount);
-                nodeCount++;
-                root = s;
-                file.seek((long)0);
-                file.writeInt(root.index);
-                s.putChild(0, r.index);
-                splitChild(s, r, 0);
-            }
-            insertNonFull(root, key, url, freq);
+        BtreeNode r = root;
+        if (r.getPopulation() == (minimumDegree * 2 - 1)) {
+            BtreeNode s = new BtreeNode(nodeCount);
+            nodeCount++;
+            root = s;
+            file.seek((long)12336);
+            file.writeInt(root.index);
+            s.putChild(0, r.index);
+            splitChild(s, r, 0);
         }
+        insertNonFull(root, key, url, freq);
     }
 
     public void insertNonFull(BtreeNode node, String key, int url, int freq) throws Exception {
         short[] newFreqs;
+        int i = node.getPopulation() - 1;
+        for (; i >= 0 && key.compareTo(new String(node.getKey(i))) <= 0; i--);
+        if(key.equals(new String(node.getKey(i+1)).trim())){
+            newFreqs = node.getFreqs(i + 1);
+            newFreqs[url] = (short)(newFreqs[url] + freq);
+            node.putFreqs(i + 1, newFreqs);
+            writeNode(node);
+            return;
+        }
         if (node.getLeaf()) {
-            int i = node.getPopulation() - 1;
-            for (; i >= 0 && key.compareTo(new String(node.getKey(i))) < 0; i--) {
-                node.putKey(i + 1, node.getKey(i));
-                node.putFreqs(i + 1, node.getFreqs(i));
+            for (int j = node.getPopulation() - 1; j > i ; j--) {
+                node.putKey(j + 1 , node.getKey(j));
+                node.putFreqs(j + 1 , node.getFreqs(j));
             }
             newFreqs = new short[20];
             newFreqs[url] = (short)freq;
@@ -226,8 +525,6 @@ class Btree{
             node.setPopulation((node.getPopulation() + 1));
             writeNode(node);
         }else{
-            int i = node.getPopulation() - 1;
-            for (; i >= 0 && key.compareTo(new String(node.getKey(i))) < 0; i--);
             i++;
             BtreeNode child = readNode(node.getChild(i));
             if (child.isFull()){
@@ -240,14 +537,14 @@ class Btree{
     }
 
     public BtreeNode readNode(int index)throws Exception {
-        file.seek((long) 516 + index * (168 * minimumDegree - 77));
+        file.seek((long) 22580 + index * (168 * minimumDegree - 77));
         byte[] bytes = new byte[168 * minimumDegree - 77];
         file.readFully(bytes);
         return new BtreeNode(index, bytes);
     }
 
     public void writeNode(BtreeNode node) throws Exception {
-        file.seek((long) 516 + node.index * (168 * minimumDegree - 77));
+        file.seek((long) 22580 + node.index * (168 * minimumDegree - 77));
         file.write(node.array());
     }
 
@@ -257,7 +554,7 @@ class Btree{
         System.out.println();
         for(int i = 0; i < nodeCount; i ++){
             BtreeNode node = readNode(i);
-            if(! node.getLeaf())node.display();
+            if(true)node.display();
         }
     }
 }
@@ -274,6 +571,11 @@ class BtreeNode{
     public boolean getLeaf(){
         b.rewind();
         return b.get()!= 0;
+    }
+
+
+    public BtreeNodeIterator iterator(Btree btree){
+        return new BtreeNodeIterator(this, btree);
     }
 
     public void setLeaf(boolean bool){
@@ -502,7 +804,7 @@ class HistIter implements Iterator<HistNode>{
         }
     }
     public boolean hasNext(){
-       return word != null;
+        return word != null;
     }
 
     public HistNode next(){
@@ -512,7 +814,7 @@ class HistIter implements Iterator<HistNode>{
             return next;
         }else if(bucketIndex < hist.capacity - 1) {
             do {
-               word = hist.wordFreqs[++bucketIndex];
+                word = hist.wordFreqs[++bucketIndex];
             }while(word == null && bucketIndex < hist.capacity - 1);
             return next;
         }
@@ -546,3 +848,80 @@ class HistNode{
     HistNode next;
 }
 
+class StringFreqs{
+    public short[] freqs;
+    public String string;
+    public StringFreqs(String string, short[] freqs){
+        this.string = string;
+        this.freqs = freqs;
+    }
+}
+
+class BtreeIterator implements Iterator<StringFreqs>{
+    BtreeNodeIterator innerIter;
+    public BtreeIterator(BtreeNode node, Btree btree){
+        innerIter = node.iterator(btree);
+    }
+    public boolean hasNext(){
+        return innerIter.hasNext();
+    }
+    public StringFreqs next(){
+        return innerIter.next();
+    }
+}
+
+class BtreeNodeIterator  implements Iterator<StringFreqs> {
+    BtreeNodeIterator innerIter;
+    BtreeNode node;
+    Btree btree;
+    int i;
+    public BtreeNodeIterator(BtreeNode node, Btree btree){
+        i = 0;
+        this.node = node;
+        this.btree = btree;
+        if(!node.getLeaf()){
+            try{
+                innerIter = btree.readNode(node.getChild(0)).iterator(btree);
+            }catch(Exception e){
+                e.printStackTrace();
+            }
+        }
+    }
+    public boolean hasNext(){
+        if (node.getLeaf()){
+            return i < node.getPopulation();
+        }else{
+            return i < node.getPopulation() || innerIter.hasNext();
+        }
+    }
+    public StringFreqs next(){
+        if(node.getLeaf()){
+             return new StringFreqs(new String(node.getKey(i)).trim(), node.getFreqs(i++));
+        }else{
+            if(innerIter.hasNext()){
+                return innerIter.next();
+            }else if(i < node.getPopulation()){
+                try {
+                    innerIter = btree.readNode(node.getChild(i + 1)).iterator(btree);
+                }catch(Exception e){
+                    e.printStackTrace();
+                }
+                return new StringFreqs(new String(node.getKey(i)).trim(), node.getFreqs(i++));
+            }else{
+                return null;
+            }
+        }
+    }
+}
+class CacheNode{
+    String url;
+    byte[] matches;
+    double[] scores;
+    long dateAccessed;
+    public CacheNode(char[] url, byte[] matches, double[] scores, long dateAccessed){
+        this.url = new String(url).trim();
+        this.matches = matches;
+        this.scores = scores;
+        this.dateAccessed = dateAccessed;
+    }
+}
